@@ -40,10 +40,12 @@ config:
   # -- Port the adapter listens on. Renders `LISTEN_ADDR` as `:<port>`.
   port: 8080
 
-# Optional bearer token the adapter sends to Loki, read from a file (`LOKI_BEARER_TOKEN_FILE`).
-# The adapter itself has no inbound authentication: restrict who can reach it with `networkPolicy`.
+# Bearer token that callers (Kargo) must send as `Authorization: Bearer <token>`. The adapter
+# reads it from a file (`AUTH_TOKEN_FILE`) and answers 401 to a request without it.
+# Recommended together with `networkPolicy`. With neither, any pod that can reach the Service
+# can read any log through the adapter.
 bearerToken:
-  # -- Mount a token from an existing Secret and pass its path to the adapter.
+  # -- Require callers to send the token. Mounts it from an existing Secret and passes its path to the adapter.
   enabled: false
   # -- Name of the existing Secret that holds the token.
   existingSecret: ""
@@ -130,8 +132,8 @@ tolerations: []
 affinity: {}
 
 networkPolicy:
-  # -- Render a NetworkPolicy for the adapter pods. Recommended: with it off, any pod in the
-  # cluster can read any log through the adapter. Needs at least one `egress.loki` peer.
+  # -- Render a NetworkPolicy for the adapter pods. Recommended together with `bearerToken`:
+  # with neither, any pod that can reach the Service can read any log through the adapter. Needs at least one `egress.loki` peer.
   enabled: false
   ingress:
     # -- Namespace selector for clients allowed to reach the adapter (for example the Kargo API).

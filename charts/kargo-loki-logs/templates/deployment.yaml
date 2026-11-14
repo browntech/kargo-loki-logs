@@ -64,7 +64,7 @@ spec:
             - name: LIMIT
               value: {{ .Values.config.limit | quote }}
             {{- if .Values.bearerToken.enabled }}
-            - name: LOKI_BEARER_TOKEN_FILE
+            - name: AUTH_TOKEN_FILE
               value: {{ printf "%s/%s" .Values.bearerToken.mountPath .Values.bearerToken.secretKey | quote }}
             {{- end }}
             {{- with .Values.extraEnv }}

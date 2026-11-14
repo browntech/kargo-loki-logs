@@ -16,7 +16,7 @@ config:
   port: 9090
 bearerToken:
   enabled: true
-  existingSecret: loki-token
+  existingSecret: adapter-token
   secretKey: token
 extraEnv:
   - name: LOG_LEVEL

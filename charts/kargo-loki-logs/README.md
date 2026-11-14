@@ -38,14 +38,18 @@ The chart passes the adapter configuration as environment variables:
 | `LOKI_LABEL_CONTAINER` | `config.labels.container` |
 | `DEFAULT_SINCE` | `config.defaultSince` |
 | `LIMIT` | `config.limit` |
-| `LOKI_BEARER_TOKEN_FILE` | `<bearerToken.mountPath>/<bearerToken.secretKey>` (set only when `bearerToken.enabled`) |
+| `AUTH_TOKEN_FILE` | `<bearerToken.mountPath>/<bearerToken.secretKey>` (set only when `bearerToken.enabled`) |
 
 ## Access control
 
-The adapter has no inbound authentication. Any client that can reach its Service can read any
-log line the adapter can read from Loki. With `networkPolicy.enabled=false` (the default), that is
-every pod in the cluster. Enable the NetworkPolicy, and enable `bearerToken` when Loki requires
-authentication, so that Loki access is limited too.
+The adapter can read any log line its Loki tenant holds. Two controls limit who can ask it:
+
+- `bearerToken`: callers must send `Authorization: Bearer <token>`. A request without the
+  correct token gets 401.
+- `networkPolicy`: only pods in the selected namespaces can open a connection.
+
+Both are off by default. Enable both. With neither, any pod that can reach the Service can read
+any log through the adapter.
 
 - Keep `service.type` at `ClusterIP`. Any other type exposes the adapter outside the cluster.
 - Put secrets in `extraEnv` only as `valueFrom.secretKeyRef`, never as a literal `value`: a
@@ -53,20 +57,21 @@ authentication, so that Loki access is limited too.
 
 ## Bearer token
 
-To send a bearer token to Loki, create a Secret and point the chart at it:
+To require a bearer token from callers, create a Secret and point the chart at it:
 
 ```sh
-kubectl -n kargo create secret generic loki-token --from-file=token=./token
+kubectl -n kargo create secret generic adapter-token --from-file=token=./token
 helm upgrade --install kargo-loki-logs oci://ghcr.io/browntech/charts/kargo-loki-logs \
   --namespace kargo \
-  --set config.lokiUrl=https://loki.example \
+  --set config.lokiUrl=http://loki.example:3100 \
   --set bearerToken.enabled=true \
-  --set bearerToken.existingSecret=loki-token
+  --set bearerToken.existingSecret=adapter-token
 ```
 
-The chart mounts the Secret read-only and sets `LOKI_BEARER_TOKEN_FILE` to the file path. The
-adapter sends the token to Loki; it does not check callers with it. The token value never
-appears in the pod spec.
+The chart mounts the Secret read-only and sets `AUTH_TOKEN_FILE` to the file path. The adapter
+then answers 401 to any request that does not send `Authorization: Bearer <token>`. The token
+value never appears in the pod spec. Configure Kargo to send the same token with each log
+request (its `httpHeaders` / `tokenSecret` settings for the log endpoint).
 
 ## NetworkPolicy
 
@@ -108,7 +113,7 @@ token is not mounted: the adapter does not call the Kubernetes API.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity. |
-| bearerToken.enabled | bool | `false` | Mount a token from an existing Secret and pass its path to the adapter. |
+| bearerToken.enabled | bool | `false` | Require callers to send the token. Mounts it from an existing Secret and passes its path to the adapter. |
 | bearerToken.existingSecret | string | `""` | Name of the existing Secret that holds the token. |
 | bearerToken.mountPath | string | `"/var/run/secrets/kargo-loki-logs"` | Directory the Secret is mounted at. |
 | bearerToken.secretKey | string | `"token"` | Key in the Secret that holds the token. |
@@ -132,7 +137,7 @@ token is not mounted: the adapter does not call the Kubernetes API.
 | networkPolicy.egress.dns | object | `{"enabled":true,"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}` | Allow DNS to kube-dns / CoreDNS. |
 | networkPolicy.egress.loki | list | `[]` | Peers that reach Loki (namespaceSelector / podSelector / ipBlock entries). |
 | networkPolicy.egress.lokiPort | int | `3100` | Loki port. |
-| networkPolicy.enabled | bool | `false` | Render a NetworkPolicy for the adapter pods. Recommended: with it off, any pod in the cluster can read any log through the adapter. Needs at least one `egress.loki` peer. |
+| networkPolicy.enabled | bool | `false` | Render a NetworkPolicy for the adapter pods. Recommended together with `bearerToken`: with neither, any pod that can reach the Service can read any log through the adapter. Needs at least one `egress.loki` peer. |
 | networkPolicy.ingress.namespaceSelector | object | `{}` | Namespace selector for clients allowed to reach the adapter (for example the Kargo API). Empty allows no ingress. |
 | networkPolicy.ingress.podSelector | object | `{}` | Optional pod selector, combined with `namespaceSelector`. Set alone, it matches pods in the release namespace only. |
 | nodeSelector | object | `{}` | Node selector. |
