@@ -40,6 +40,17 @@ The chart passes the adapter configuration as environment variables:
 | `LIMIT` | `config.limit` |
 | `LOKI_BEARER_TOKEN_FILE` | `<bearerToken.mountPath>/<bearerToken.secretKey>` (set only when `bearerToken.enabled`) |
 
+## Access control
+
+The adapter has no inbound authentication. Any client that can reach its Service can read any
+log line the adapter can read from Loki. With `networkPolicy.enabled=false` (the default), that is
+every pod in the cluster. Enable the NetworkPolicy, and enable `bearerToken` when Loki requires
+authentication, so that Loki access is limited too.
+
+- Keep `service.type` at `ClusterIP`. Any other type exposes the adapter outside the cluster.
+- Put secrets in `extraEnv` only as `valueFrom.secretKeyRef`, never as a literal `value`: a
+  literal is readable by anyone who can read the Deployment.
+
 ## Bearer token
 
 To send a bearer token to Loki, create a Secret and point the chart at it:
@@ -54,16 +65,19 @@ helm upgrade --install kargo-loki-logs oci://ghcr.io/browntech/charts/kargo-loki
 ```
 
 The chart mounts the Secret read-only and sets `LOKI_BEARER_TOKEN_FILE` to the file path. The
-token value never appears in the pod spec.
+adapter sends the token to Loki; it does not check callers with it. The token value never
+appears in the pod spec.
 
 ## NetworkPolicy
 
 Set `networkPolicy.enabled=true` to restrict the adapter pods:
 
 - **Ingress:** only from pods that match `networkPolicy.ingress.namespaceSelector` (and
-  `podSelector`, when set), on the HTTP port. With both empty, no ingress is allowed.
+  `podSelector`, when set), on the HTTP port. With both empty, no ingress is allowed. A
+  `podSelector` set without a `namespaceSelector` matches pods in the release namespace only.
 - **Egress:** to the peers in `networkPolicy.egress.loki` on `networkPolicy.egress.lokiPort`,
-  and to cluster DNS on port 53. Nothing else.
+  and to cluster DNS on port 53. Nothing else. `networkPolicy.egress.loki` must list at least
+  one peer, or the render fails.
 
 ```yaml
 networkPolicy:

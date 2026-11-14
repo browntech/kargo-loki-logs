@@ -1,5 +1,8 @@
 {{- if .Values.networkPolicy.enabled }}
 {{- $np := .Values.networkPolicy }}
+{{- if not $np.egress.loki }}
+{{- fail "networkPolicy.egress.loki must list at least one peer when networkPolicy.enabled is true; without it the adapter cannot reach Loki" }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

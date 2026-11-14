@@ -40,7 +40,8 @@ config:
   # -- Port the adapter listens on. Renders `LISTEN_ADDR` as `:<port>`.
   port: 8080
 
-# Optional bearer token for Loki, read from a file (`LOKI_BEARER_TOKEN_FILE`).
+# Optional bearer token the adapter sends to Loki, read from a file (`LOKI_BEARER_TOKEN_FILE`).
+# The adapter itself has no inbound authentication: restrict who can reach it with `networkPolicy`.
 bearerToken:
   # -- Mount a token from an existing Secret and pass its path to the adapter.
   enabled: false
@@ -51,11 +52,13 @@ bearerToken:
   # -- Directory the Secret is mounted at.
   mountPath: /var/run/secrets/kargo-loki-logs
 
-# -- Extra environment variables for the adapter container.
+# -- Extra environment variables for the adapter container. Put a secret here only as
+# `valueFrom.secretKeyRef`, never as a literal `value`.
 extraEnv: []
 
 service:
-  # -- Service type.
+  # -- Service type. A type other than `ClusterIP` exposes the adapter, and every log it can read,
+  # outside the cluster.
   type: ClusterIP
   # -- Service port.
   port: 80
@@ -127,13 +130,15 @@ tolerations: []
 affinity: {}
 
 networkPolicy:
-  # -- Render a NetworkPolicy for the adapter pods.
+  # -- Render a NetworkPolicy for the adapter pods. Recommended: with it off, any pod in the
+  # cluster can read any log through the adapter. Needs at least one `egress.loki` peer.
   enabled: false
   ingress:
     # -- Namespace selector for clients allowed to reach the adapter (for example the Kargo API).
     # Empty allows no ingress.
     namespaceSelector: {}
-    # -- Optional pod selector, combined with `namespaceSelector`.
+    # -- Optional pod selector, combined with `namespaceSelector`. Set alone, it matches pods in
+    # the release namespace only.
     podSelector: {}
   egress:
     # -- Peers that reach Loki (namespaceSelector / podSelector / ipBlock entries).

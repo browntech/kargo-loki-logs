@@ -5,7 +5,7 @@ image:
 imagePullSecrets:
   - name: registry-pull
 config:
-  lokiUrl: https://loki.example
+  lokiUrl: http://loki.example:3100
   tenant: tenant-a
   labels:
     namespace: k8s_namespace_name

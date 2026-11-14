@@ -41,7 +41,7 @@ spec:
       containers:
         - name: adapter
           image: {{ include "kargo-loki-logs.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
@@ -87,17 +87,17 @@ spec:
           {{- if .Values.bearerToken.enabled }}
           volumeMounts:
             - name: bearer-token
-              mountPath: {{ .Values.bearerToken.mountPath }}
+              mountPath: {{ .Values.bearerToken.mountPath | quote }}
               readOnly: true
           {{- end }}
       {{- if .Values.bearerToken.enabled }}
       volumes:
         - name: bearer-token
           secret:
-            secretName: {{ .Values.bearerToken.existingSecret }}
+            secretName: {{ .Values.bearerToken.existingSecret | quote }}
             items:
-              - key: {{ .Values.bearerToken.secretKey }}
-                path: {{ .Values.bearerToken.secretKey }}
+              - key: {{ .Values.bearerToken.secretKey | quote }}
+                path: {{ .Values.bearerToken.secretKey | quote }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

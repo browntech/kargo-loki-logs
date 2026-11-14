@@ -40,6 +40,17 @@ The chart passes the adapter configuration as environment variables:
 | `LIMIT` | `config.limit` |
 | `LOKI_BEARER_TOKEN_FILE` | `<bearerToken.mountPath>/<bearerToken.secretKey>` (set only when `bearerToken.enabled`) |
 
+## Access control
+
+The adapter has no inbound authentication. Any client that can reach its Service can read any
+log line the adapter can read from Loki. With `networkPolicy.enabled=false` (the default), that is
+every pod in the cluster. Enable the NetworkPolicy, and enable `bearerToken` when Loki requires
+authentication, so that Loki access is limited too.
+
+- Keep `service.type` at `ClusterIP`. Any other type exposes the adapter outside the cluster.
+- Put secrets in `extraEnv` only as `valueFrom.secretKeyRef`, never as a literal `value`: a
+  literal is readable by anyone who can read the Deployment.
+
 ## Bearer token
 
 To send a bearer token to Loki, create a Secret and point the chart at it:
@@ -54,16 +65,19 @@ helm upgrade --install kargo-loki-logs oci://ghcr.io/browntech/charts/kargo-loki
 ```
 
 The chart mounts the Secret read-only and sets `LOKI_BEARER_TOKEN_FILE` to the file path. The
-token value never appears in the pod spec.
+adapter sends the token to Loki; it does not check callers with it. The token value never
+appears in the pod spec.
 
 ## NetworkPolicy
 
 Set `networkPolicy.enabled=true` to restrict the adapter pods:
 
 - **Ingress:** only from pods that match `networkPolicy.ingress.namespaceSelector` (and
-  `podSelector`, when set), on the HTTP port. With both empty, no ingress is allowed.
+  `podSelector`, when set), on the HTTP port. With both empty, no ingress is allowed. A
+  `podSelector` set without a `namespaceSelector` matches pods in the release namespace only.
 - **Egress:** to the peers in `networkPolicy.egress.loki` on `networkPolicy.egress.lokiPort`,
-  and to cluster DNS on port 53. Nothing else.
+  and to cluster DNS on port 53. Nothing else. `networkPolicy.egress.loki` must list at least
+  one peer, or the render fails.
 
 ```yaml
 networkPolicy:
@@ -106,7 +120,7 @@ token is not mounted: the adapter does not call the Kubernetes API.
 | config.lokiUrl | string | `"http://loki.example:3100"` | Loki base URL (`LOKI_URL`). Required. |
 | config.port | int | `8080` | Port the adapter listens on. Renders `LISTEN_ADDR` as `:<port>`. |
 | config.tenant | string | `""` | Loki tenant sent as `X-Scope-OrgID` (`LOKI_TENANT`). Empty sends no header. |
-| extraEnv | list | `[]` | Extra environment variables for the adapter container. |
+| extraEnv | list | `[]` | Extra environment variables for the adapter container. Put a secret here only as `valueFrom.secretKeyRef`, never as a literal `value`. |
 | fullnameOverride | string | `""` | Override the full resource name. |
 | image.digest | string | `""` | Image digest (`sha256:...`). When set, the image renders as `repository@digest` and `tag` is ignored. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
@@ -118,9 +132,9 @@ token is not mounted: the adapter does not call the Kubernetes API.
 | networkPolicy.egress.dns | object | `{"enabled":true,"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{"matchLabels":{"k8s-app":"kube-dns"}}}` | Allow DNS to kube-dns / CoreDNS. |
 | networkPolicy.egress.loki | list | `[]` | Peers that reach Loki (namespaceSelector / podSelector / ipBlock entries). |
 | networkPolicy.egress.lokiPort | int | `3100` | Loki port. |
-| networkPolicy.enabled | bool | `false` | Render a NetworkPolicy for the adapter pods. |
+| networkPolicy.enabled | bool | `false` | Render a NetworkPolicy for the adapter pods. Recommended: with it off, any pod in the cluster can read any log through the adapter. Needs at least one `egress.loki` peer. |
 | networkPolicy.ingress.namespaceSelector | object | `{}` | Namespace selector for clients allowed to reach the adapter (for example the Kargo API). Empty allows no ingress. |
-| networkPolicy.ingress.podSelector | object | `{}` | Optional pod selector, combined with `namespaceSelector`. |
+| networkPolicy.ingress.podSelector | object | `{}` | Optional pod selector, combined with `namespaceSelector`. Set alone, it matches pods in the release namespace only. |
 | nodeSelector | object | `{}` | Node selector. |
 | podAnnotations | object | `{}` | Extra pod annotations. |
 | podLabels | object | `{}` | Extra pod labels. |
@@ -131,7 +145,7 @@ token is not mounted: the adapter does not call the Kubernetes API.
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"privileged":false,"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. |
 | service.annotations | object | `{}` | Extra Service annotations. |
 | service.port | int | `80` | Service port. |
-| service.type | string | `"ClusterIP"` | Service type. |
+| service.type | string | `"ClusterIP"` | Service type. A type other than `ClusterIP` exposes the adapter, and every log it can read, outside the cluster. |
 | serviceAccount.annotations | object | `{}` | ServiceAccount annotations. |
 | serviceAccount.automountServiceAccountToken | bool | `false` | Mount the ServiceAccount token. The adapter does not call the Kubernetes API. |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount. |
