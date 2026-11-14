@@ -1,0 +1,113 @@
+{{- if not .Values.config.lokiUrl }}
+{{- fail "config.lokiUrl is required" }}
+{{- end }}
+{{- if and .Values.bearerToken.enabled (not .Values.bearerToken.existingSecret) }}
+{{- fail "bearerToken.existingSecret is required when bearerToken.enabled is true" }}
+{{- end }}
+{{- if and .Values.image.digest (not (hasPrefix "sha256:" .Values.image.digest)) }}
+{{- fail "image.digest must start with sha256:" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kargo-loki-logs.fullname" . }}
+  labels:
+    {{- include "kargo-loki-logs.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kargo-loki-logs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kargo-loki-logs.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kargo-loki-logs.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: adapter
+          image: {{ include "kargo-loki-logs.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: LISTEN_ADDR
+              value: {{ printf ":%d" (int .Values.config.port) | quote }}
+            - name: LOKI_URL
+              value: {{ .Values.config.lokiUrl | quote }}
+            {{- with .Values.config.tenant }}
+            - name: LOKI_TENANT
+              value: {{ . | quote }}
+            {{- end }}
+            - name: LOKI_LABEL_NAMESPACE
+              value: {{ .Values.config.labels.namespace | quote }}
+            - name: LOKI_LABEL_POD
+              value: {{ .Values.config.labels.pod | quote }}
+            - name: LOKI_LABEL_CONTAINER
+              value: {{ .Values.config.labels.container | quote }}
+            - name: DEFAULT_SINCE
+              value: {{ .Values.config.defaultSince | quote }}
+            - name: LIMIT
+              value: {{ .Values.config.limit | quote }}
+            {{- if .Values.bearerToken.enabled }}
+            - name: AUTH_TOKEN_FILE
+              value: {{ printf "%s/%s" .Values.bearerToken.mountPath .Values.bearerToken.secretKey | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.bearerToken.enabled }}
+          volumeMounts:
+            - name: bearer-token
+              mountPath: {{ .Values.bearerToken.mountPath | quote }}
+              readOnly: true
+          {{- end }}
+      {{- if .Values.bearerToken.enabled }}
+      volumes:
+        - name: bearer-token
+          secret:
+            secretName: {{ .Values.bearerToken.existingSecret | quote }}
+            items:
+              - key: {{ .Values.bearerToken.secretKey | quote }}
+                path: {{ .Values.bearerToken.secretKey | quote }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

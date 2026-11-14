@@ -1,0 +1,56 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- if not $np.egress.loki }}
+{{- fail "networkPolicy.egress.loki must list at least one peer when networkPolicy.enabled is true; without it the adapter cannot reach Loki" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kargo-loki-logs.fullname" . }}
+  labels:
+    {{- include "kargo-loki-logs.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kargo-loki-logs.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- $peer := dict }}
+  {{- with $np.ingress.namespaceSelector }}{{- $_ := set $peer "namespaceSelector" . }}{{- end }}
+  {{- with $np.ingress.podSelector }}{{- $_ := set $peer "podSelector" . }}{{- end }}
+  {{- if $peer }}
+  ingress:
+    - from:
+        {{- toYaml (list $peer) | nindent 8 }}
+      ports:
+        - port: http
+          protocol: TCP
+  {{- else }}
+  ingress: []
+  {{- end }}
+  {{- if not (or $np.egress.loki $np.egress.dns.enabled) }}
+  egress: []
+  {{- else }}
+  egress:
+    {{- with $np.egress.loki }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: {{ $np.egress.lokiPort }}
+          protocol: TCP
+    {{- end }}
+    {{- if $np.egress.dns.enabled }}
+    - to:
+        - namespaceSelector:
+            {{- toYaml $np.egress.dns.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $np.egress.dns.podSelector | nindent 12 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- end }}
+  {{- end }}
+{{- end }}
