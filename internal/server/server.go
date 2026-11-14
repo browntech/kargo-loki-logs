@@ -155,6 +155,9 @@ func (s *Server) serveLogs(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(strings.TrimSuffix(e.Line, "\n"))
 		b.WriteByte('\n')
 	}
+	if len(entries) >= s.cfg.Limit {
+		fmt.Fprintf(&b, "[kargo-loki-logs: output truncated at %d lines]\n", s.cfg.Limit)
+	}
 	_, _ = w.Write([]byte(b.String()))
 }
 
@@ -187,14 +190,32 @@ func validName(s string) bool {
 	return len(s) <= maxNameLen && namePattern.MatchString(s)
 }
 
+// maxGenerateNameBase is the length to which the API server truncates a
+// generateName base before it appends the 5-character random suffix.
+const maxGenerateNameBase = 58
+
 // Selector builds the LogQL stream selector for a Job's container. The values
-// must already have passed validName; jobName is regex-quoted and every value
-// is escaped for a LogQL double-quoted string.
+// must already have passed validName; the pod pattern is regex-quoted and
+// every value is escaped for a LogQL double-quoted string.
 func Selector(l Labels, ns, job, container string) string {
 	return fmt.Sprintf(`{%s="%s", %s=~"%s", %s="%s"}`,
 		l.Namespace, logqlString(ns),
-		l.Pod, logqlString(regexp.QuoteMeta(job)+"-.*"),
+		l.Pod, logqlString(PodPattern(job)),
 		l.Container, logqlString(container))
+}
+
+// PodPattern returns the regex that matches the names of a Job's pods:
+// "<job>-<rand5>", or "<job>-<index>-<rand5>" for an indexed Job. When
+// "<job>-" is longer than the API server's generateName limit, it is cut to
+// that limit and the random suffix follows directly. The pattern is anchored
+// on the full name (Loki anchors =~), so another Job named "<job>-<x>" does
+// not match.
+func PodPattern(job string) string {
+	p := job + "-"
+	if len(p) <= maxGenerateNameBase {
+		return regexp.QuoteMeta(p) + "([0-9]+-)?[a-z0-9]{5}"
+	}
+	return regexp.QuoteMeta(p[:maxGenerateNameBase]) + "[a-z0-9]{5}"
 }
 
 // logqlString escapes s for use inside a LogQL double-quoted string.

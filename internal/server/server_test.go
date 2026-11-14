@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -133,7 +134,7 @@ func TestValidRequestReturnsPlainLinesOldestFirst(t *testing.T) {
 	if got := p.Get("limit"); got != "100" {
 		t.Errorf("limit = %q, want 100", got)
 	}
-	if want := `{namespace="kargo-proj", pod=~"verify-abc-.*", container="main"}`; p.Get("query") != want {
+	if want := `{namespace="kargo-proj", pod=~"verify-abc-([0-9]+-)?[a-z0-9]{5}", container="main"}`; p.Get("query") != want {
 		t.Errorf("query = %q, want %q", p.Get("query"), want)
 	}
 	if got := q.Header.Get("X-Scope-OrgID"); got != "team-a" {
@@ -207,7 +208,7 @@ func TestDotInJobNameIsEscaped(t *testing.T) {
 	if code, body, _ := get(t, srv, "/logs/ns/verify.v1.2/main", ""); code != http.StatusOK {
 		t.Fatalf("status = %d, body %q", code, body)
 	}
-	want := `{namespace="ns", pod=~"verify\\.v1\\.2-.*", container="main"}`
+	want := `{namespace="ns", pod=~"verify\\.v1\\.2-([0-9]+-)?[a-z0-9]{5}", container="main"}`
 	for _, path := range []string{"/loki/api/v1/index/volume_range", "/loki/api/v1/query_range"} {
 		r := f.find(path)
 		if r == nil {
@@ -222,9 +223,86 @@ func TestDotInJobNameIsEscaped(t *testing.T) {
 func TestSelectorEscaping(t *testing.T) {
 	l := server.Labels{Namespace: "k8s_namespace", Pod: "k8s_pod", Container: "k8s_container"}
 	got := server.Selector(l, "ns", "a.b", "c")
-	want := `{k8s_namespace="ns", k8s_pod=~"a\\.b-.*", k8s_container="c"}`
+	want := `{k8s_namespace="ns", k8s_pod=~"a\\.b-([0-9]+-)?[a-z0-9]{5}", k8s_container="c"}`
 	if got != want {
 		t.Errorf("Selector = %q, want %q", got, want)
+	}
+}
+
+func TestPodPattern(t *testing.T) {
+	short := "0a1b2c3d-4e5f-6789-abcd-ef0123456789.smoke.1" // 43 chars, Kargo-style
+	long := strings.Repeat("a", 50) + "." + strings.Repeat("b", 20)
+	cases := []struct {
+		job, pattern string
+		match, miss  []string
+	}{
+		{
+			job:     short,
+			pattern: `0a1b2c3d-4e5f-6789-abcd-ef0123456789\.smoke\.1-([0-9]+-)?[a-z0-9]{5}`,
+			match:   []string{short + "-x7k2p", short + "-0-x7k2p", short + "-12-abcde"},
+			miss:    []string{short + "-retry-x7k2p", short + "-x7k2", "0a1b2c3d-4e5f-6789-abcd-ef0123456789xsmoke.1-x7k2p"},
+		},
+		{
+			job:     long,
+			pattern: regexp.QuoteMeta((long + "-")[:58]) + `[a-z0-9]{5}`,
+			match:   []string{(long + "-")[:58] + "x7k2p"},
+			miss:    []string{long + "-x7k2p", (long + "-")[:58] + "x7k2"},
+		},
+	}
+	for _, tc := range cases {
+		got := server.PodPattern(tc.job)
+		if got != tc.pattern {
+			t.Errorf("PodPattern(%q) = %q, want %q", tc.job, got, tc.pattern)
+		}
+		re := regexp.MustCompile("^(?:" + got + ")$") // Loki anchors =~ matchers
+		for _, n := range tc.match {
+			if !re.MatchString(n) {
+				t.Errorf("%q should match pod %q", got, n)
+			}
+		}
+		for _, n := range tc.miss {
+			if re.MatchString(n) {
+				t.Errorf("%q should not match pod %q", got, n)
+			}
+		}
+	}
+	// The 58-char boundary: "<job>-" of exactly 58 chars keeps the long form.
+	job57 := strings.Repeat("c", 57)
+	if got, want := server.PodPattern(job57), job57+"-([0-9]+-)?[a-z0-9]{5}"; got != want {
+		t.Errorf("PodPattern(57 chars) = %q, want %q", got, want)
+	}
+	job58 := strings.Repeat("c", 58)
+	if got, want := server.PodPattern(job58), job58+"[a-z0-9]{5}"; got != want {
+		t.Errorf("PodPattern(58 chars) = %q, want %q", got, want)
+	}
+}
+
+func TestTruncationTrailer(t *testing.T) {
+	f := &fakeLoki{volumeBody: emptyVolume, queryBody: twoStreams}
+	lokiSrv := httptest.NewServer(f)
+	defer lokiSrv.Close()
+	u, _ := url.Parse(lokiSrv.URL)
+	for _, tc := range []struct {
+		limit int
+		want  string
+	}{
+		{3, "first\nsecond\nthird\n[kargo-loki-logs: output truncated at 3 lines]\n"},
+		{4, "first\nsecond\nthird\n"},
+	} {
+		h := server.New(server.Config{
+			Source:     &loki.Client{BaseURL: u, HTTP: lokiSrv.Client()},
+			Labels:     server.Labels{Namespace: "namespace", Pod: "pod", Container: "container"},
+			Since:      time.Hour,
+			Lookback:   720 * time.Hour,
+			Limit:      tc.limit,
+			WindowStep: time.Hour,
+			Now:        func() time.Time { return now },
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/logs/ns/job/main", nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != tc.want {
+			t.Errorf("limit %d: got %d %q, want %q", tc.limit, rec.Code, rec.Body.String(), tc.want)
+		}
 	}
 }
 
