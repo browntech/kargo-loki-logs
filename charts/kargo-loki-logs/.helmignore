@@ -5,3 +5,4 @@
 *.tmp
 ci/
 README.md.gotmpl
+tests/

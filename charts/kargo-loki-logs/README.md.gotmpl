@@ -112,3 +112,16 @@ token is not mounted: the adapter does not call the Kubernetes API.
 
 The values table is generated with [helm-docs](https://github.com/norwoodj/helm-docs): run
 `helm-docs` in this directory after a change to `values.yaml`.
+
+## Development
+
+Unit tests for the templates live in `tests/` and run with the
+[helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin, version `v1.2.1`:
+
+```sh
+helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.2.1
+helm unittest charts/kargo-loki-logs
+```
+
+Run the tests after a change to a template or to `values.yaml`. The `tests/` directory is not
+packaged with the chart.

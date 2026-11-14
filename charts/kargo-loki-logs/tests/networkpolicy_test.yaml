@@ -1,0 +1,161 @@
+suite: networkpolicy
+templates:
+  - networkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails when enabled with no egress.loki peer
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "networkPolicy.egress.loki must list at least one peer when networkPolicy.enabled is true; without it the adapter cannot reach Loki"
+
+  - it: allows no ingress when no ingress selector is set
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.loki:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - equal:
+          path: spec.ingress
+          value: []
+
+  - it: renders namespace and pod selectors as one ingress peer on the http port
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kargo
+      networkPolicy.ingress.podSelector:
+        matchLabels:
+          app.kubernetes.io/name: kargo-api
+      networkPolicy.egress.loki:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: kargo
+                  podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: kargo-api
+              ports:
+                - port: http
+                  protocol: TCP
+
+  - it: renders a namespace selector alone as one ingress peer
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kargo
+      networkPolicy.egress.loki:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kargo
+
+  - it: renders a pod selector alone as one ingress peer
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.podSelector:
+        matchLabels:
+          app.kubernetes.io/name: kargo-api
+      networkPolicy.egress.loki:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: kargo-api
+
+  - it: allows egress to the Loki peers on lokiPort and to DNS
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.loki:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: loki
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      networkPolicy.egress.lokiPort: 3101
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 2
+      - equal:
+          path: spec.egress[0]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: loki
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: loki
+            ports:
+              - port: 3101
+                protocol: TCP
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+                podSelector:
+                  matchLabels:
+                    k8s-app: kube-dns
+            ports:
+              - port: 53
+                protocol: UDP
+              - port: 53
+                protocol: TCP
+
+  - it: drops the DNS rule when egress.dns.enabled is false
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.loki:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      networkPolicy.egress.dns.enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 1
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - port: 3100
+              protocol: TCP
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 53
+          any: true
