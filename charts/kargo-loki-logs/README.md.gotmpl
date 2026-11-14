@@ -1,0 +1,95 @@
+# kargo-loki-logs Helm chart
+
+{{ template "chart.description" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+The adapter serves Kargo's AnalysisRun log API and reads the lines from Loki. Kargo shows the
+result as plain text.
+
+## Install
+
+```sh
+helm install kargo-loki-logs oci://ghcr.io/browntech/charts/kargo-loki-logs \
+  --namespace kargo \
+  --set config.lokiUrl=http://loki.example:3100
+```
+
+Pin the image by digest in production:
+
+```sh
+--set image.digest=sha256:<digest>
+```
+
+With a digest set, the image renders as `ghcr.io/browntech/kargo-loki-logs@sha256:<digest>` and
+`image.tag` is ignored.
+
+## Environment variables
+
+The chart passes the adapter configuration as environment variables:
+
+| Variable | Value |
+|---|---|
+| `LISTEN_ADDR` | `:<config.port>` |
+| `LOKI_URL` | `config.lokiUrl` |
+| `LOKI_TENANT` | `config.tenant` (set only when not empty; sent as `X-Scope-OrgID`) |
+| `LOKI_LABEL_NAMESPACE` | `config.labels.namespace` |
+| `LOKI_LABEL_POD` | `config.labels.pod` |
+| `LOKI_LABEL_CONTAINER` | `config.labels.container` |
+| `DEFAULT_SINCE` | `config.defaultSince` |
+| `LIMIT` | `config.limit` |
+| `LOKI_BEARER_TOKEN_FILE` | `<bearerToken.mountPath>/<bearerToken.secretKey>` (set only when `bearerToken.enabled`) |
+
+## Bearer token
+
+To send a bearer token to Loki, create a Secret and point the chart at it:
+
+```sh
+kubectl -n kargo create secret generic loki-token --from-file=token=./token
+helm upgrade --install kargo-loki-logs oci://ghcr.io/browntech/charts/kargo-loki-logs \
+  --namespace kargo \
+  --set config.lokiUrl=https://loki.example \
+  --set bearerToken.enabled=true \
+  --set bearerToken.existingSecret=loki-token
+```
+
+The chart mounts the Secret read-only and sets `LOKI_BEARER_TOKEN_FILE` to the file path. The
+token value never appears in the pod spec.
+
+## NetworkPolicy
+
+Set `networkPolicy.enabled=true` to restrict the adapter pods:
+
+- **Ingress:** only from pods that match `networkPolicy.ingress.namespaceSelector` (and
+  `podSelector`, when set), on the HTTP port. With both empty, no ingress is allowed.
+- **Egress:** to the peers in `networkPolicy.egress.loki` on `networkPolicy.egress.lokiPort`,
+  and to cluster DNS on port 53. Nothing else.
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kargo
+  egress:
+    loki:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: loki
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: loki
+    lokiPort: 3100
+```
+
+## Security
+
+The pod runs as non-root (UID 65532), with a read-only root filesystem, no privilege
+escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile. The ServiceAccount
+token is not mounted: the adapter does not call the Kubernetes API.
+
+{{ template "chart.valuesSection" . }}
+
+The values table is generated with [helm-docs](https://github.com/norwoodj/helm-docs): run
+`helm-docs` in this directory after a change to `values.yaml`.

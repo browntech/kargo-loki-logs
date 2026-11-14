@@ -1,0 +1,64 @@
+replicaCount: 2
+image:
+  tag: "0.1.0"
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+imagePullSecrets:
+  - name: registry-pull
+config:
+  lokiUrl: https://loki.example
+  tenant: tenant-a
+  labels:
+    namespace: k8s_namespace_name
+    pod: k8s_pod_name
+    container: k8s_container_name
+  defaultSince: 30m
+  limit: 2000
+  port: 9090
+bearerToken:
+  enabled: true
+  existingSecret: loki-token
+  secretKey: token
+extraEnv:
+  - name: LOG_LEVEL
+    value: debug
+service:
+  annotations:
+    example.com/owner: ops
+serviceAccount:
+  annotations:
+    example.com/owner: ops
+podAnnotations:
+  example.com/scrape: "false"
+podLabels:
+  team: ops
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: ops
+    effect: NoSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: kargo-loki-logs
+networkPolicy:
+  enabled: true
+  ingress:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kargo
+  egress:
+    loki:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: loki
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: loki
+    lokiPort: 3100

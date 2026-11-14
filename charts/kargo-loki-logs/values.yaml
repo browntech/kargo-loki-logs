@@ -1,0 +1,151 @@
+# -- Number of adapter replicas.
+replicaCount: 1
+
+image:
+  # -- Image repository.
+  repository: ghcr.io/browntech/kargo-loki-logs
+  # -- Image tag. Defaults to the chart appVersion when empty.
+  tag: ""
+  # -- Image digest (`sha256:...`). When set, the image renders as `repository@digest` and `tag` is ignored.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for a private registry mirror.
+imagePullSecrets: []
+
+# -- Override the chart name in resource names.
+nameOverride: ""
+# -- Override the full resource name.
+fullnameOverride: ""
+
+# Adapter configuration. Each field maps to one environment variable.
+config:
+  # -- Loki base URL (`LOKI_URL`). Required.
+  lokiUrl: http://loki.example:3100
+  # -- Loki tenant sent as `X-Scope-OrgID` (`LOKI_TENANT`). Empty sends no header.
+  tenant: ""
+  # Loki label names that hold the Kubernetes coordinates of a log line.
+  labels:
+    # -- Namespace label name (`LOKI_LABEL_NAMESPACE`).
+    namespace: namespace
+    # -- Pod label name (`LOKI_LABEL_POD`).
+    pod: pod
+    # -- Container label name (`LOKI_LABEL_CONTAINER`).
+    container: container
+  # -- Default look-back window when a request gives none (`DEFAULT_SINCE`), as a Go duration.
+  defaultSince: 1h
+  # -- Maximum log lines returned per request (`LIMIT`).
+  limit: 5000
+  # -- Port the adapter listens on. Renders `LISTEN_ADDR` as `:<port>`.
+  port: 8080
+
+# Optional bearer token for Loki, read from a file (`LOKI_BEARER_TOKEN_FILE`).
+bearerToken:
+  # -- Mount a token from an existing Secret and pass its path to the adapter.
+  enabled: false
+  # -- Name of the existing Secret that holds the token.
+  existingSecret: ""
+  # -- Key in the Secret that holds the token.
+  secretKey: token
+  # -- Directory the Secret is mounted at.
+  mountPath: /var/run/secrets/kargo-loki-logs
+
+# -- Extra environment variables for the adapter container.
+extraEnv: []
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 80
+  # -- Extra Service annotations.
+  annotations: {}
+
+serviceAccount:
+  # -- Create a ServiceAccount.
+  create: true
+  # -- ServiceAccount name. Generated when empty and `create` is true.
+  name: ""
+  # -- ServiceAccount annotations.
+  annotations: {}
+  # -- Mount the ServiceAccount token. The adapter does not call the Kubernetes API.
+  automountServiceAccountToken: false
+
+# -- Extra pod annotations.
+podAnnotations: {}
+# -- Extra pod labels.
+podLabels: {}
+
+# -- Pod security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  privileged: false
+  capabilities:
+    drop:
+      - ALL
+
+# -- Container resources. Requests and a memory limit are set by default.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# -- Liveness probe on `/healthz`.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 20
+# -- Readiness probe on `/healthz`.
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 10
+
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity.
+affinity: {}
+
+networkPolicy:
+  # -- Render a NetworkPolicy for the adapter pods.
+  enabled: false
+  ingress:
+    # -- Namespace selector for clients allowed to reach the adapter (for example the Kargo API).
+    # Empty allows no ingress.
+    namespaceSelector: {}
+    # -- Optional pod selector, combined with `namespaceSelector`.
+    podSelector: {}
+  egress:
+    # -- Peers that reach Loki (namespaceSelector / podSelector / ipBlock entries).
+    loki: []
+    # -- Loki port.
+    lokiPort: 3100
+    # -- Allow DNS to kube-dns / CoreDNS.
+    dns:
+      enabled: true
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
