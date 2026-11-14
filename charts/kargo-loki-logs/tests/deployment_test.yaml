@@ -1,0 +1,266 @@
+suite: deployment
+templates:
+  - deployment.yaml
+tests:
+  - it: renders the image as repository:tag with the appVersion by default
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/browntech/kargo-loki-logs:0.1.0
+
+  - it: renders the image with image.tag when set
+    set:
+      image.tag: 1.2.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/browntech/kargo-loki-logs:1.2.3
+
+  - it: renders the image as repository@digest and ignores the tag when image.digest is set
+    set:
+      image.tag: 1.2.3
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/browntech/kargo-loki-logs@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "@sha256:"
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "1\\.2\\.3"
+
+  - it: fails when image.digest does not start with sha256
+    set:
+      image.digest: "0000000000000000000000000000000000000000000000000000000000000000"
+    asserts:
+      - failedTemplate:
+          errorMessage: "image.digest must start with sha256:"
+
+  - it: fails when config.lokiUrl is empty
+    set:
+      config.lokiUrl: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: config.lokiUrl is required
+
+  - it: sets the env contract with its defaults
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LISTEN_ADDR
+            value: ":8080"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_URL
+            value: http://loki.example:3100
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_NAMESPACE
+            value: namespace
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_POD
+            value: pod
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_CONTAINER
+            value: container
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_SINCE
+            value: 1h
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LIMIT
+            value: "5000"
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 7
+
+  - it: sets the env contract from config values
+    set:
+      config.port: 9090
+      config.lokiUrl: http://logs.example:3100
+      config.labels.namespace: k8s_namespace_name
+      config.labels.pod: k8s_pod_name
+      config.labels.container: k8s_container_name
+      config.defaultSince: 30m
+      config.limit: 2000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LISTEN_ADDR
+            value: ":9090"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_URL
+            value: http://logs.example:3100
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_NAMESPACE
+            value: k8s_namespace_name
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_POD
+            value: k8s_pod_name
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_LABEL_CONTAINER
+            value: k8s_container_name
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_SINCE
+            value: 30m
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LIMIT
+            value: "2000"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9090
+
+  - it: omits LOKI_TENANT when config.tenant is empty
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_TENANT
+          any: true
+
+  - it: sets LOKI_TENANT when config.tenant is set
+    set:
+      config.tenant: tenant-a
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOKI_TENANT
+            value: tenant-a
+
+  - it: has no token file, Secret volume or mount when bearerToken is disabled
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_TOKEN_FILE
+          any: true
+      - notExists:
+          path: spec.template.spec.volumes
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts
+
+  - it: mounts the token Secret read-only and sets AUTH_TOKEN_FILE when bearerToken is enabled
+    set:
+      bearerToken.enabled: true
+      bearerToken.existingSecret: adapter-token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_TOKEN_FILE
+            value: /var/run/secrets/kargo-loki-logs/token
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: bearer-token
+              secret:
+                secretName: adapter-token
+                items:
+                  - key: token
+                    path: token
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: bearer-token
+              mountPath: /var/run/secrets/kargo-loki-logs
+              readOnly: true
+
+  - it: fails when bearerToken is enabled without existingSecret
+    set:
+      bearerToken.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: bearerToken.existingSecret is required when bearerToken.enabled is true
+
+  - it: quotes a secretKey that holds YAML syntax
+    set:
+      bearerToken.enabled: true
+      bearerToken.existingSecret: adapter-token
+      bearerToken.secretKey: "a: b"
+      bearerToken.mountPath: /var/run/token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_TOKEN_FILE
+            value: "/var/run/token/a: b"
+      - equal:
+          path: spec.template.spec.volumes[0].secret.items[0]
+          value:
+            key: "a: b"
+            path: "a: b"
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /var/run/token
+
+  - it: runs as UID 65532 with a locked-down container securityContext
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value:
+            - ALL
+
+  - it: does not mount the ServiceAccount token
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: probes /healthz on the http port
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /healthz
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /healthz
+            port: http
