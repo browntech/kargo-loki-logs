@@ -41,7 +41,7 @@ Each setting is an environment variable; a flag of the same meaning overrides it
 | `LOKI_LABEL_CONTAINER` | `-container-label` | `container` | Loki label that holds the container name |
 | `DEFAULT_SINCE` | `-since` | `1h` | Range of the log query when the window lookup finds no window |
 | `LIMIT` | `-limit` | `5000` | Maximum lines returned |
-| `LOKI_BEARER_TOKEN_FILE` | `-token-file` | empty | File that holds the token callers must send; empty turns auth off |
+| `AUTH_TOKEN_FILE` | `-auth-token-file` | empty | File that holds the token callers must send; empty turns auth off |
 | `LISTEN_ADDR` | `-listen` | `:8080` | Listen address |
 | `WINDOW_LOOKBACK` | `-window-lookback` | `720h` | How far back the window lookup searches; set it to your Loki retention |
 | `WINDOW_STEP` | `-window-step` | `1h` | Bucket size of the window lookup; the window is padded by one bucket each side |
@@ -65,14 +65,14 @@ api:
     logs:
       enabled: true
       urlTemplate: "http://kargo-loki-logs.logging.svc.cluster.local:8080/logs/${{jobNamespace}}/${{jobName}}/${{container}}"
-      # Optional, when LOKI_BEARER_TOKEN_FILE is set on the adapter:
+      # Optional, when AUTH_TOKEN_FILE is set on the adapter:
       tokenSecret:
         name: kargo-loki-logs-token
         key: token
 ```
 
 `kargo-loki-logs-token` is a Secret you create in Kargo's namespace. Mount the same
-token into the adapter and set `LOKI_BEARER_TOKEN_FILE` to its path. Kargo streams the
+token into the adapter and set `AUTH_TOKEN_FILE` to its path. Kargo streams the
 adapter's response body to the UI unchanged.
 
 ## Build

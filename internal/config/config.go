@@ -56,7 +56,7 @@ func Parse(args []string, getenv func(string) string) (*Config, error) {
 	lookback := fs.String("window-lookback", env("WINDOW_LOOKBACK", "720h"), "how far back the window lookup searches (env WINDOW_LOOKBACK)")
 	step := fs.String("window-step", env("WINDOW_STEP", "1h"), "bucket size of the volume lookup (env WINDOW_STEP)")
 	timeout := fs.String("loki-timeout", env("LOKI_TIMEOUT", "30s"), "timeout of each Loki request (env LOKI_TIMEOUT)")
-	tokenFile := fs.String("token-file", env("LOKI_BEARER_TOKEN_FILE", ""), "file holding the token callers must send in Authorization (env LOKI_BEARER_TOKEN_FILE)")
+	tokenFile := fs.String("auth-token-file", env("AUTH_TOKEN_FILE", ""), "file holding the token callers must send in Authorization (env AUTH_TOKEN_FILE)")
 	logLevel := fs.String("log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (env LOG_LEVEL)")
 
 	if err := fs.Parse(args); err != nil {

@@ -39,7 +39,7 @@ func TestTokenFile(t *testing.T) {
 	if err := os.WriteFile(p, []byte("abc\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Parse([]string{"-token-file", p}, envMap(map[string]string{"LOKI_URL": "https://loki.example"}))
+	c, err := Parse([]string{"-auth-token-file", p}, envMap(map[string]string{"LOKI_URL": "https://loki.example"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +60,8 @@ func TestInvalid(t *testing.T) {
 		"bad since":     {"-since", "forever"},
 		"negative step": {"-window-step", "-1h"},
 		"bad level":     {"-log-level", "loud"},
-		"missing token": {"-token-file", filepath.Join(t.TempDir(), "nope")},
-		"empty token":   {"-token-file", empty},
+		"missing token": {"-auth-token-file", filepath.Join(t.TempDir(), "nope")},
+		"empty token":   {"-auth-token-file", empty},
 		"bad url":       {"-loki-url", "loki.example"},
 		"extra arg":     {"extra"},
 	}
