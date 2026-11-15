@@ -1,6 +1,6 @@
 replicaCount: 2
 image:
-  tag: "0.1.0"
+  tag: "v0.1.0"
   digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 imagePullSecrets:
   - name: registry-pull
