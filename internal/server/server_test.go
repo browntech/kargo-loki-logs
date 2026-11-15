@@ -376,6 +376,28 @@ func TestWindowLookupNarrowsRange(t *testing.T) {
 	}
 }
 
+func TestWindowLookupReadsVector(t *testing.T) {
+	// A short Job fills one hourly bucket, so Loki answers with a vector.
+	b := now.Add(-26 * time.Hour)
+	vol := `{"status":"success","data":{"resultType":"vector","result":[
+	 {"metric":{},"value":[` + secs(b) + `,"1024"]}
+	]}}`
+	f := &fakeLoki{volumeBody: vol, queryBody: twoStreams}
+	srv := newServer(t, f, "")
+
+	if code, body, _ := get(t, srv, "/logs/ns/job/main", ""); code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", code, body)
+	}
+
+	q := f.find("/loki/api/v1/query_range").URL.Query()
+	if got, want := q.Get("start"), ns(b.Add(-time.Hour)); got != want {
+		t.Errorf("start = %s, want %s", got, want)
+	}
+	if got, want := q.Get("end"), ns(b.Add(time.Hour)); got != want {
+		t.Errorf("end = %s, want %s", got, want)
+	}
+}
+
 func TestWindowLookupFailureFallsBackToSince(t *testing.T) {
 	f := &fakeLoki{volumeCode: http.StatusBadRequest, volumeBody: "volume disabled", queryBody: twoStreams}
 	srv := newServer(t, f, "")
