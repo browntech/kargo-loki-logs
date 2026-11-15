@@ -20,6 +20,10 @@ Remove the `Authorization` header and any token before you post.
 Outside pull requests are not accepted. Only collaborators can open a pull request
 in this repository. If you have a fix or an idea, describe it in an issue.
 
+A collaborator's pull request uses the
+[pull request template](.github/pull_request_template.md): summary, changes,
+testing and checklist.
+
 ## Security
 
 Do not open a public issue for a security problem. Report it privately on the
