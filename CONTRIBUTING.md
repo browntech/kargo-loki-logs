@@ -10,8 +10,10 @@ For a bug, include:
 
 - the kargo-loki-logs version (image tag or chart version),
 - the Kargo and Loki versions,
-- the request the adapter received and what it returned, with secrets removed,
-- the adapter's log lines for that request.
+- the `/logs/...` path Kargo requested and the HTTP status it got back,
+- the adapter's warning and error lines, or its output with `LOG_LEVEL=debug`.
+
+Remove the `Authorization` header and any token before you post.
 
 ## Pull requests
 
