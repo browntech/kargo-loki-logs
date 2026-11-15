@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+env:
+  HELM_VERSION: v4.3.2
+  IMAGE: ghcr.io/browntech/kargo-loki-logs
+  CHART_REPO: oci://ghcr.io/browntech/charts
+  CHART_DIR: charts/kargo-loki-logs
+
+jobs:
+  ci:
+    name: CI
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: Read version from tag
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag ${TAG} is not vX.Y.Z"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+
+  image:
+    name: Push image to GHCR
+    needs: [ci, version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=kargo-loki-logs
+            org.opencontainers.image.description=Kargo AnalysisRun log adapter that serves Loki logs as plain text.
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          annotations: |
+            org.opencontainers.image.title=kargo-loki-logs
+            org.opencontainers.image.description=Kargo AnalysisRun log adapter that serves Loki logs as plain text.
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
+  chart:
+    name: Push chart to GHCR
+    needs: [version, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+          checksum-policy: required
+
+      - name: Package chart
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # appVersion is the image tag (vX.Y.Z); the chart's default image tag is its appVersion.
+          helm package "${CHART_DIR}" --version "${VERSION}" --app-version "${TAG}" -d "${RUNNER_TEMP}/chart"
+
+      - name: Push chart
+        id: push
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${REGISTRY_TOKEN}" | helm registry login ghcr.io -u "${REGISTRY_USER}" --password-stdin
+          helm push "${RUNNER_TEMP}/chart/kargo-loki-logs-${VERSION}.tgz" "${CHART_REPO}" 2>&1 | tee "${RUNNER_TEMP}/push.log"
+          digest="$(grep -oE 'sha256:[0-9a-f]{64}' "${RUNNER_TEMP}/push.log" | head -n1)"
+          test -n "${digest}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          helm registry logout ghcr.io
+
+  github-release:
+    name: Create GitHub release
+    needs: [version, image, chart]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          CHART_DIGEST: ${{ needs.chart.outputs.digest }}
+        run: |
+          set -euo pipefail
+          minor="${VERSION%.*}"
+          cat > "${RUNNER_TEMP}/notes.md" <<EOF
+          ## Artifacts
+
+          Image (linux/amd64, linux/arm64):
+
+          - \`${IMAGE}:${TAG}\`
+          - \`${IMAGE}:${minor}\`
+          - \`${IMAGE}@${IMAGE_DIGEST}\`
+
+          Helm chart:
+
+          - \`${CHART_REPO}/kargo-loki-logs --version ${VERSION}\` (digest \`${CHART_DIGEST}\`)
+
+          \`\`\`sh
+          helm install kargo-loki-logs ${CHART_REPO}/kargo-loki-logs --version ${VERSION}
+          \`\`\`
+          EOF
+          gh release create "${TAG}" --verify-tag --title "${TAG}" \
+            --notes-file "${RUNNER_TEMP}/notes.md" --generate-notes
