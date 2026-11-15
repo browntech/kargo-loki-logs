@@ -7,7 +7,7 @@ on:
 permissions: {}
 
 env:
-  HELM_VERSION: v4.3.2
+  HELM_VERSION: v4.3.2 # keep in step with HELM_VERSION in ci.yml
   IMAGE: ghcr.io/browntech/kargo-loki-logs
   CHART_REPO: oci://ghcr.io/browntech/charts
   CHART_DIR: charts/kargo-loki-logs
