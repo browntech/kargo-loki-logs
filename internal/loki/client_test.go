@@ -75,6 +75,18 @@ func TestVolumeWindow(t *testing.T) {
 			want: loki.Window{Start: b1.Add(-step), End: b2.Add(step)},
 		},
 		{
+			name: "vector skips a zero-volume series",
+			body: `{"status":"success","data":{"resultType":"vector","result":[
+			 {"metric":{"a":"1"},"value":[` + secs(b1) + `,"0"]},
+			 {"metric":{"a":"2"},"value":[` + secs(b2) + `,"9"]}]}}`,
+			want: loki.Window{Start: b2.Add(-step), End: b2.Add(step)},
+		},
+		{
+			name:       "vector with a null value",
+			body:       `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":null}]}}`,
+			wantNoData: true,
+		},
+		{
 			name:       "empty vector",
 			body:       `{"status":"success","data":{"resultType":"vector","result":[]}}`,
 			wantNoData: true,

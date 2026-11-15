@@ -95,8 +95,10 @@ var ErrNoData = errors.New("no data for selector")
 
 // VolumeWindow asks index/volume_range for the selector's volume over
 // [start, end] in buckets of step, and returns the span of the non-empty
-// buckets, padded by one step on each side. It reads only the index, so it is
-// much cheaper than a log query over the same range.
+// buckets. Loki stamps each bucket with its end time, so the window starts one
+// step before the first stamp (that bucket's start) and ends one step after
+// the last stamp. It reads only the index, so it is much cheaper than a log
+// query over the same range.
 //
 // Loki leaves out empty buckets. When no series has more than one non-empty
 // bucket, it answers with a "vector" (one "value" per series) instead of a
