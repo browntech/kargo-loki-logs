@@ -66,7 +66,9 @@ const twoStreams = `{"status":"success","data":{"resultType":"streams","result":
  {"stream":{"pod":"verify-abc-2"},"values":[["2000000000","second"]]}
 ]}}`
 
-const emptyVolume = `{"status":"success","data":{"resultType":"matrix","result":[]}}`
+// Loki answers an empty volume_range result as a vector: its query frontend
+// returns a matrix only when a series has more than one sample.
+const emptyVolume = `{"status":"success","data":{"resultType":"vector","result":[]}}`
 
 func newServer(t *testing.T, f *fakeLoki, token string) *httptest.Server {
 	t.Helper()
@@ -372,6 +374,28 @@ func TestWindowLookupNarrowsRange(t *testing.T) {
 		t.Errorf("start = %s, want %s", got, want)
 	}
 	if got, want := q.Get("end"), ns(b2.Add(time.Hour)); got != want {
+		t.Errorf("end = %s, want %s", got, want)
+	}
+}
+
+func TestWindowLookupReadsVector(t *testing.T) {
+	// A short Job fills one hourly bucket, so Loki answers with a vector.
+	b := now.Add(-26 * time.Hour)
+	vol := `{"status":"success","data":{"resultType":"vector","result":[
+	 {"metric":{},"value":[` + secs(b) + `,"1024"]}
+	]}}`
+	f := &fakeLoki{volumeBody: vol, queryBody: twoStreams}
+	srv := newServer(t, f, "")
+
+	if code, body, _ := get(t, srv, "/logs/ns/job/main", ""); code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", code, body)
+	}
+
+	q := f.find("/loki/api/v1/query_range").URL.Query()
+	if got, want := q.Get("start"), ns(b.Add(-time.Hour)); got != want {
+		t.Errorf("start = %s, want %s", got, want)
+	}
+	if got, want := q.Get("end"), ns(b.Add(time.Hour)); got != want {
 		t.Errorf("end = %s, want %s", got, want)
 	}
 }

@@ -95,8 +95,16 @@ var ErrNoData = errors.New("no data for selector")
 
 // VolumeWindow asks index/volume_range for the selector's volume over
 // [start, end] in buckets of step, and returns the span of the non-empty
-// buckets, padded by one step on each side. It reads only the index, so it is
-// much cheaper than a log query over the same range.
+// buckets. Loki stamps each bucket with its end time, so the window starts one
+// step before the first stamp (that bucket's start). It ends one step after
+// the last stamp, a margin of one bucket for lines indexed late. The window is
+// clamped to [start, end]. It reads only the index, so it is much cheaper than
+// a log query over the same range.
+//
+// Loki leaves out empty buckets. When no series has more than one non-empty
+// bucket, it answers with a "vector" (one "value" per series) instead of a
+// "matrix" ("values"). A short Job usually fits in one bucket, so both forms
+// are read.
 func (c *Client) VolumeWindow(ctx context.Context, selector string, start, end time.Time, step time.Duration) (Window, error) {
 	v := url.Values{}
 	v.Set("query", selector)
@@ -108,6 +116,7 @@ func (c *Client) VolumeWindow(ctx context.Context, selector string, start, end t
 		Data struct {
 			ResultType string `json:"resultType"`
 			Result     []struct {
+				Value  *[2]json.RawMessage  `json:"value"`
 				Values [][2]json.RawMessage `json:"values"`
 			} `json:"result"`
 		} `json:"data"`
@@ -115,35 +124,46 @@ func (c *Client) VolumeWindow(ctx context.Context, selector string, start, end t
 	if err := c.get(ctx, "/loki/api/v1/index/volume_range", v, &resp); err != nil {
 		return Window{}, err
 	}
-	if resp.Data.ResultType != "matrix" {
+
+	var samples [][2]json.RawMessage
+	switch resp.Data.ResultType {
+	case "matrix":
+		for _, s := range resp.Data.Result {
+			samples = append(samples, s.Values...)
+		}
+	case "vector":
+		for _, s := range resp.Data.Result {
+			if s.Value != nil {
+				samples = append(samples, *s.Value)
+			}
+		}
+	default:
 		return Window{}, fmt.Errorf("loki volume_range: unexpected resultType %q", resp.Data.ResultType)
 	}
 
 	var first, last time.Time
-	for _, s := range resp.Data.Result {
-		for _, val := range s.Values {
-			var ts float64
-			if err := json.Unmarshal(val[0], &ts); err != nil {
-				return Window{}, fmt.Errorf("loki volume_range: bad timestamp %s: %w", val[0], err)
-			}
-			var sval string
-			if err := json.Unmarshal(val[1], &sval); err != nil {
-				return Window{}, fmt.Errorf("loki volume_range: bad value %s: %w", val[1], err)
-			}
-			n, err := strconv.ParseFloat(sval, 64)
-			if err != nil {
-				return Window{}, fmt.Errorf("loki volume_range: bad value %q: %w", sval, err)
-			}
-			if n <= 0 {
-				continue
-			}
-			t := time.Unix(0, int64(ts*float64(time.Second)))
-			if first.IsZero() || t.Before(first) {
-				first = t
-			}
-			if t.After(last) {
-				last = t
-			}
+	for _, val := range samples {
+		var ts float64
+		if err := json.Unmarshal(val[0], &ts); err != nil {
+			return Window{}, fmt.Errorf("loki volume_range: bad timestamp %s: %w", val[0], err)
+		}
+		var sval string
+		if err := json.Unmarshal(val[1], &sval); err != nil {
+			return Window{}, fmt.Errorf("loki volume_range: bad value %s: %w", val[1], err)
+		}
+		n, err := strconv.ParseFloat(sval, 64)
+		if err != nil {
+			return Window{}, fmt.Errorf("loki volume_range: bad value %q: %w", sval, err)
+		}
+		if n <= 0 {
+			continue
+		}
+		t := time.Unix(0, int64(ts*float64(time.Second)))
+		if first.IsZero() || t.Before(first) {
+			first = t
+		}
+		if t.After(last) {
+			last = t
 		}
 	}
 	if first.IsZero() {
