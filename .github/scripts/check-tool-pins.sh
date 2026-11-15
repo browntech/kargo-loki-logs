@@ -17,6 +17,9 @@ release="${dir}/release.yml"
 pin() {
   local value
   value="$(grep -E "^[[:space:]]+$2:" "$1" | head -n1 | awk '{print $2}')"
+  # A YAML value may be quoted: "v1.2.3" or 'v1.2.3'.
+  value="${value#[\"\']}"
+  value="${value%[\"\']}"
   if [[ -z "${value}" ]]; then
     echo "error: no $2 pin in $1" >&2
     return 1
@@ -25,19 +28,31 @@ pin() {
 }
 
 # latest OWNER/REPO -> tag of the release GitHub marks "latest" (never a
-# draft or a pre-release).
+# draft or a pre-release). Fails on a tag that is not plain [v]X.Y.Z.
 latest() {
-  gh release view --repo "$1" --json tagName --jq .tagName
+  local tag
+  tag="$(gh release view --repo "$1" --json tagName --jq .tagName)"
+  if ! [[ "${tag}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "error: latest release tag of $1 is '${tag}', not [v]X.Y.Z" >&2
+    return 1
+  fi
+  printf '%s' "${tag}"
+}
+
+# older A B -> success when version A sorts before version B.
+older() {
+  [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" == "$1" ]]
 }
 
 stale=()
 
-# check NAME PINNED OWNER/REPO [PREFIX]: PREFIX is put before the pin when the
-# pin omits the tag's leading "v".
+# check NAME PINNED OWNER/REPO: flags the pin only when it is older than the
+# latest release, so a "latest" patch on an older major never asks for a
+# downgrade. A leading "v" on either side is ignored.
 check() {
-  local name="$1" pinned="$2" repo="$3" prefix="${4:-}" want
+  local name="$1" pinned="$2" repo="$3" want
   want="$(latest "${repo}")"
-  if [[ "${prefix}${pinned}" != "${want}" ]]; then
+  if older "${pinned#v}" "${want#v}"; then
     stale+=("- \`${name}\`: pinned \`${pinned}\`, latest is \`${want}\` (https://github.com/${repo}/releases/tag/${want})")
   fi
 }
@@ -56,7 +71,7 @@ check "HELM_VERSION (ci.yml)" "${helm_ci}" helm/helm
 if [[ "${helm_release}" != "${helm_ci}" ]]; then
   check "HELM_VERSION (release.yml)" "${helm_release}" helm/helm
 fi
-check "HELM_UNITTEST_VERSION (update HELM_UNITTEST_SHA256 with it)" "${unittest}" helm-unittest/helm-unittest v
+check "HELM_UNITTEST_VERSION (update HELM_UNITTEST_SHA256 with it)" "${unittest}" helm-unittest/helm-unittest
 check GOLANGCI_LINT_VERSION "${golangci}" golangci/golangci-lint
 check COSIGN_VERSION "${cosign}" sigstore/cosign
 
