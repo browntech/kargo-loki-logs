@@ -66,7 +66,8 @@ const twoStreams = `{"status":"success","data":{"resultType":"streams","result":
  {"stream":{"pod":"verify-abc-2"},"values":[["2000000000","second"]]}
 ]}}`
 
-// Loki answers an empty volume_range result as a vector.
+// Loki answers an empty volume_range result as a vector: its query frontend
+// returns a matrix only when a series has more than one sample.
 const emptyVolume = `{"status":"success","data":{"resultType":"vector","result":[]}}`
 
 func newServer(t *testing.T, f *fakeLoki, token string) *httptest.Server {

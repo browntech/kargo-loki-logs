@@ -87,6 +87,11 @@ func TestVolumeWindow(t *testing.T) {
 			wantNoData: true,
 		},
 		{
+			name:       "empty matrix",
+			body:       `{"status":"success","data":{"resultType":"matrix","result":[]}}`,
+			wantNoData: true,
+		},
+		{
 			name:       "empty vector",
 			body:       `{"status":"success","data":{"resultType":"vector","result":[]}}`,
 			wantNoData: true,
