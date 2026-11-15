@@ -8,7 +8,7 @@ tests:
           of: Deployment
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/browntech/kargo-loki-logs:0.1.0
+          value: ghcr.io/browntech/kargo-loki-logs:v0.1.0
 
   - it: renders the image with image.tag when set
     set:

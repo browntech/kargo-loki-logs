@@ -3,7 +3,7 @@ name: kargo-loki-logs
 description: Kargo AnalysisRun log adapter that serves Loki logs as plain text.
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "v0.1.0"
 license: MIT
 keywords:
   - kargo
