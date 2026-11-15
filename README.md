@@ -102,8 +102,8 @@ The image is distroless static and runs as UID 65532. The build cross-compiles w
 
 ## Contributing
 
-Issues are welcome. Outside pull requests are not accepted; a pull request from
-outside the project is closed with a pointer to the issue tracker.
+Issues are welcome. Outside pull requests are not accepted. See
+[CONTRIBUTING.md](CONTRIBUTING.md), which also says how to report a security problem.
 
 ## License
 
