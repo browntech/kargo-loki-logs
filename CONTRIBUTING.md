@@ -24,6 +24,20 @@ A collaborator's pull request uses the
 [pull request template](.github/pull_request_template.md): summary, changes,
 testing and checklist.
 
+## Releases
+
+Only repository admins can push a `v*.*.*` tag; a tag ruleset enforces this.
+
+1. Push the release commit to `main` first. The release workflow fails a tag whose
+   commit is not on `main`. If you pushed the tag first, push `main` and re-run the
+   failed jobs.
+2. Push a `vX.Y.Z` tag on that commit.
+3. Approve the run. Every publish job waits for the `release` environment, which needs
+   a required reviewer.
+
+The workflow runs from the tagged commit, so its checks are only as strong as the
+rule on who can push a tag. Keep tag push limited to admins.
+
 ## Security
 
 Do not open a public issue for a security problem. Report it privately on the
