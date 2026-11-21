@@ -32,8 +32,8 @@ Only repository admins can push a `v*.*.*` tag; a tag ruleset enforces this.
    commit is not on `main`. If you pushed the tag first, push `main` and re-run the
    failed jobs.
 2. Push a `vX.Y.Z` tag on that commit.
-3. Approve the run. Every publish job waits for the `release` environment, which needs
-   a required reviewer.
+3. Approve the run. Every publish job waits for approval in the `release` environment,
+   which needs a required reviewer.
 
 The workflow runs from the tagged commit, so its checks are only as strong as the
 rule on who can push a tag. Keep tag push limited to admins.
