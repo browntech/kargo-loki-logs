@@ -100,6 +100,17 @@ docker buildx build --platform linux/amd64,linux/arm64 -t kargo-loki-logs .
 The image is distroless static and runs as UID 65532. The build cross-compiles with
 `GOARCH`, so it needs no QEMU.
 
+## Verify a release
+
+Each release image carries an SBOM and a provenance attestation signed by GitHub
+Actions. Check the attestation with the GitHub CLI:
+
+```sh
+gh attestation verify oci://ghcr.io/browntech/kargo-loki-logs:<tag> -R browntech/kargo-loki-logs
+```
+
+Each release's notes give the image digest.
+
 ## Contributing
 
 Issues are welcome. Outside pull requests are not accepted. See

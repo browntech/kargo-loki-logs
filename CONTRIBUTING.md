@@ -27,7 +27,7 @@ testing and checklist.
 ## Security
 
 Do not open a public issue for a security problem. Report it privately on the
-repository's **Security** tab: **Report a vulnerability**.
+repository's **Security** tab: **Report a vulnerability**. See [SECURITY.md](SECURITY.md).
 
 ## License
 
