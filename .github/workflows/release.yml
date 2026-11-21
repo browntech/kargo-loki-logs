@@ -39,9 +39,45 @@ jobs:
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
 
+  on-main:
+    name: Check tag is on main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tagged commit is an ancestor of main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "::error::tag ${TAG} (${GITHUB_SHA}) is not on main"
+            exit 1
+          fi
+
+  # The `release` environment requires a reviewer's approval. Every publish job
+  # needs this job, directly or through `image`, so nothing is pushed before the
+  # release is approved.
+  approve:
+    name: Approve release
+    needs: [ci, version, on-main]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions: {}
+    steps:
+      - name: Record approval
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: echo "Release ${TAG} approved."
+
   image:
     name: Push image to GHCR
-    needs: [ci, version]
+    needs: [version, approve]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,6 +127,39 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          sbom: true
+          provenance: mode=max
+
+  # Its own job, so only this step can mint an OIDC token, not the build Actions.
+  attest:
+    name: Attest image provenance
+    needs: [image]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write # keyless signing of the provenance attestation
+      attestations: write
+    steps:
+      - name: Log in to GHCR
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${REGISTRY_TOKEN}" | docker login ghcr.io -u "${REGISTRY_USER}" --password-stdin
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.image.outputs.digest }}
+          push-to-registry: true
+          # Storage records need an organization-owned repository.
+          create-storage-record: false
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io
 
   chart:
     name: Push chart to GHCR
@@ -137,7 +206,7 @@ jobs:
 
   github-release:
     name: Create GitHub release
-    needs: [version, image, chart]
+    needs: [version, image, attest, chart]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -168,6 +237,13 @@ jobs:
 
           \`\`\`sh
           helm install kargo-loki-logs ${CHART_REPO}/kargo-loki-logs --version ${VERSION}
+          \`\`\`
+
+          Verify the image's provenance attestation:
+
+          \`\`\`sh
+          gh attestation verify oci://${IMAGE}@${IMAGE_DIGEST} -R ${GH_REPO} \\
+            --signer-workflow ${GH_REPO}/.github/workflows/release.yml
           \`\`\`
           EOF
           gh release create "${TAG}" --verify-tag --title "${TAG}" \
