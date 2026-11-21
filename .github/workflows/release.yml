@@ -61,7 +61,8 @@ jobs:
           fi
 
   # The `release` environment requires a reviewer's approval. Every publish job
-  # needs this job, so nothing is pushed before the release is approved.
+  # needs this job, directly or through `image`, so nothing is pushed before the
+  # release is approved.
   approve:
     name: Approve release
     needs: [ci, version, on-main]
@@ -69,7 +70,8 @@ jobs:
     environment: release
     permissions: {}
     steps:
-      - env:
+      - name: Record approval
+        env:
           TAG: ${{ needs.version.outputs.tag }}
         run: echo "Release ${TAG} approved."
 
@@ -220,7 +222,8 @@ jobs:
           Verify the image's provenance attestation:
 
           \`\`\`sh
-          gh attestation verify oci://${IMAGE}@${IMAGE_DIGEST} -R ${GH_REPO}
+          gh attestation verify oci://${IMAGE}@${IMAGE_DIGEST} -R ${GH_REPO} \\
+            --signer-workflow ${GH_REPO}/.github/workflows/release.yml
           \`\`\`
           EOF
           gh release create "${TAG}" --verify-tag --title "${TAG}" \
